@@ -1,0 +1,103 @@
+---
+title: "readWriteExcelInR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(openxlsx)
+library(readxl) # needed for the function excel_sheets(),which returns sheet names of the whole excel file
+```
+
+## Introduction
+
+Read and write excel files in R is relatively easy than that in Julia and the related packages also seem more stable and better developed(maintained) than their counterpart in Julia. Thus, this markdown file provides a template for future works that need to do tasks of reading in and writing to excel files. 
+
+The workflow is demonstrated as firstly create some sample datasets in the form of tibbles, which are then wrote to excel files, and then read in these saved files, do some computation and save results in one single excel files. 
+
+## Create sample datasets
+
+```{r createSampleDatasets}
+N <- 31
+T <- 20
+sampleData <- function(N, T){
+    dtMatrix <- matrix(rep(0, N*T), nrow = N)
+    for (t in 1:T){
+        dtMatrix[,t] <- runif(N)
+    }
+    colnames(dtMatrix) <- paste("year", 1:T, sep = "_")
+    dt <- as.tibble(dtMatrix)
+    dt <- add_column(dt, id=paste("province", 1:N, sep = "_"), .before = 1)
+    return(dt)
+}
+
+
+sheetsName <- c("GDP", "exports", "imports", "counsumption", "investments")
+
+sheetsList <- function(sheetsName){
+    sheetsList <- as.list(sheetsName)
+    names(sheetsList) <- sheetsName
+    for (i in 1:length(sheetsName)){
+        sheetsList[[i]] <- sampleData(N, T)
+    }
+    return(sheetsList)
+}
+
+country1 <- sheetsList(sheetsName)
+country2 <- sheetsList(sheetsName)
+country3 <- sheetsList(sheetsName)
+```
+
+
+## Save sample datasets
+To save a list of dataframes into a single excel files of different sheets, we need the package **openxlsx**. 
+```{r saveSampleDatasets}
+for (i in 1:3){
+    dataset <- as.symbol(paste("country", i, sep = ""))
+    write.xlsx(eval(dataset), file=paste("~/country", i, ".xlsx", sep=""))
+}
+```
+
+
+## Read excel file with different sheets as a list of tibbles
+```{r readExcel}
+fileList <- as.list(paste("file", 1:3, sep = "_"))
+names(fileList) <- paste("country", 1:3, sep = "")
+for (i in 1:3){
+    path <- paste("~/country", i, ".xlsx", sep="")
+    sheets <- excel_sheets(path)
+    sheets <- set_names(sheets) 
+    fileList[[i]] <- map(sheets, read_xlsx, path=path, n_max=31, 
+        col_names=c("prov", paste('y', 1998:2017, sep = "")),
+        skip=1)
+}
+summary(fileList)
+summary(fileList$country1)
+str(fileList)
+```
+
+
+## Compute average over time for each sheet 
+```{r computeMeanofSheet}
+meanList <- as.list(paste("mean", 1:3, sep = "_"))
+names(meanList) <- paste("AvgCountry", 1:3, sep = "")
+for (i in 1:3){
+    file <- fileList[[i]]
+    n <- length(file)
+    meanList[[i]] <- matrix(rep(1.0, T*n), nrow = T)
+    colnames(meanList[[i]]) <- names(file)
+	rownames(meanList[[i]]) <- names(file[[1]])[-1] # data start from the second column, thus the 1st element is "id"
+    for (j in 1:n){
+        sheet <- file[[j]]
+        meanList[[i]][,j] <- apply(sheet[,-1], 2, mean)
+    }
+}
+```
+
+## Save averages over time for each sheet in a single excel file
+```{r saveAvgs}
+write.xlsx(meanList, file="~/averages.xlsx")
+```
+
+
